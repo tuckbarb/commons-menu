@@ -1,0 +1,23 @@
+{
+  "name": "commons-menu",
+  "version": "1.0.0",
+  "description": "",
+  "main": "scrape.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://tuckbarb@github.com/tuckbarb/commons-menu.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tuckbarb/commons-menu/issues"
+  },
+  "homepage": "https://github.com/tuckbarb/commons-menu#readme",
+  "dependencies": {
+    "node-fetch": "^2.6.1"
+  }
+}

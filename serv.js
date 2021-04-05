@@ -4,16 +4,35 @@ const http = require('http');
 const fs = require('fs');
 const port = 3000;
 
+var cookie_asp_ID;
+
+// Returns date now
+function getCurrentDate(){
+	return new Date(Date.now());
+}
+
+// Holder for the day's current menu
+// so it doesn't have to be loaded on each page request
+var daily_menu = {
+	obtainedDate: false,
+	menus: []
+};
+
+
+// Handle a page request
 const requestHandler = (request, response) => {
   console.log(request.url)
 
 
+  // Return only the JSON
   if(request.url == "//data/menus.json" || request.url == "//data/menus.json"){
-  	menuRequest().then(data => {
+  	getCurrentMenu().then(data => {
 	  	response.end(JSON.stringify(data));
 	  });
+
+  // otherwise return the menu in HTML
   } else if(request.url == "/" || request.url == "//"){
-  	menuRequest().then(data => {
+  	getCurrentMenu().then(data => {
 	  	response.writeHead(200, { 'Content-Type':'text/html'});
   		// let html = fs.readFileSync('./index.html', {root: __dirname });
   		let html = "";
@@ -26,7 +45,6 @@ const requestHandler = (request, response) => {
   			}
   			html += "</ul>"; 
   		}
-
     	response.end(html);
 	  });
   } else {
@@ -36,29 +54,94 @@ const requestHandler = (request, response) => {
 
 }
 
-const server = http.createServer(requestHandler)
+// Determine the meal being served at this current time and return it.
+function getCurrentMeal() {
 
-function getCurrentDate(){
-	return new Date(Date.now());
+	var menuToUse;
+
+	let nowMin = getCurrentDate().getUTCMinutes();
+	let nowHour = getCurrentDate().getUTCHours();
+	let nowDay = getCurrentDate().getUTCDay();
+	// Also correct to EST 
+	let nowTime = ((24 + nowHour - 4) % 24) + (nowMin / 60);
+	if(nowHour < 5){
+		nowDay --;
+	}
+
+	console.log("Date: (" + nowDay + ") - " + nowHour + ":" + nowMin + "[" + nowTime + "]");
+
+	// If only two meals are served a day
+	if(daily_menu.menus.length == 2){
+		if(nowTime < 16.5 ){
+			menuToUse = daily_menu.menus[1];
+		} else {
+			menuToUse = daily_menu.menus[0];
+		}
+	// otherwise, probably a normal schedule
+	} else {
+		// If a weekend day
+		if(nowDay == 0 || nowDay == 6){
+			if(nowTime < 10){
+				menuToUse = daily_menu.menus[0]; // Breakfast
+			} else if(nowTime < 16 ){
+				menuToUse = daily_menu.menus[2]; // Brunch
+			} else {
+				menuToUse = daily_menu.menus[1]; // Dinner
+			}
+		} else {
+			if(nowTime < 11){
+				menuToUse = daily_menu.menus[0]; // Breakfast
+			} else if(nowTime < 16.5){
+				menuToUse = daily_menu.menus[1]; // Lunch
+			} else {
+				menuToUse = daily_menu.menus[2]; // Dinner
+			}
+		}
+	}
+
+	return menuToUse;
+
 }
 
-function getMenuFromHTML(html) {
+// Determine if current day's menu is loaded, is so return it
+async function getCurrentMenu(){
+	var dateRightNow = getCurrentDate();
 
+	// Check if the menu has been updated today
+	var isSameDay =  ( daily_menu.obtainedDate 
+					&& daily_menu.obtainedDate.getDate() === dateRightNow.getDate() 
+     				&& daily_menu.obtainedDate.getMonth() === dateRightNow.getMonth()
+                    && daily_menu.obtainedDate.getFullYear() === dateRightNow.getFullYear() );
+
+	// If not, retrieve the menu through JSON
+	if(!isSameDay){
+		daily_menu.obtainedDate = dateRightNow;
+		return dailyMenuRequest().then(() => getCurrentMeal());
+	// otherwise good to go
+	} else {
+		return getCurrentMeal();
+	}
+
+}
+
+// Take the awful mess of HTML we were given from the request and extract the menu values from it
+function extractMenuFromHTML(html) {
 	var itemMenu = [];
+	// It seemed that all the section names had role="button"
+	// Not the best but it works :/
 	var sections = html.match(/(?<=<div role='button'>)(.*?)(?=<)/g);
 	var splHTML = html.split(new RegExp(sections.join('|'), 'g'));
 
 	for(var s = 0; s < sections.length; s++){
+		// All menu items have cbo_nn_itemHover, use that to find them
 		var items = splHTML[s + 1].match(/(?<=cbo_nn_itemHover'>)(.*?)(?=<)/g);
 		itemMenu.push({ section: sections[s], items: items })
 	}
-
 	return itemMenu;
 }
 
-
-async function menuRequest() {
-	var cookie_asp_ID;
+// Initiate request and get menu IDs
+async function dailyMenuRequest() {
 
 	var menuData = await fetch("https://menu.bates.edu/NetNutrition/1", {
 		"credentials": "include",
@@ -122,48 +205,30 @@ async function menuRequest() {
 	    "method": "POST",
 	    "mode": "cors"
 	})).then(response => response.json())
-	.then(data => {
-		var menuToUse = 0;
+	.then(async data => {
 
 		for(var p = 0; p < data.panels.length; p++){
 			if(data.panels[p].id == "navBarResults"){
 				let dataHTML = data.panels[p].html;
+				// Search html and get array of menus
 				var menus = dataHTML.match(/(?<=menuListSelectUnitAndMenu\(1, )(.*?)(?=\))/g);
 
-				let nowMin = getCurrentDate().getMinutes();
-				let nowHour = getCurrentDate().getHours();
-				let nowDay = getCurrentDate().getDay();
-				// Also correct to EST
-				let nowTime = ((24 + nowHour - 4) % 24) + (nowMin / 60);
-
-				if(nowHour < 5){
-					nowDay --;
-				}
-
-				console.log("Date: (" + nowDay + ") - " + nowHour + ":" + nowMin + "[" + nowTime + "]");
-
-				if(nowDay == 0 || nowDay == 6){
-					if(nowTime < 10){
-						menuToUse = menus[0];
-					} else if(nowTime < 16.5 ){
-						menuToUse = menus[2];
-					} else {
-						menuToUse = menus[1];
-					}
-				} else {
-					if(nowTime < 11){
-						menuToUse = menus[0];
-					} else if(nowTime < 16.5){
-						menuToUse = menus[1];
-					} else {
-						menuToUse = menus[2];
-					}
+				daily_menu.menus = [];
+				for(var m = 0; m < menus.length; m++) {
+					// Send request for each menu
+					daily_menu.menus[m] = await mealMenuRequest( menus[m] );
 				}
 			}
 		}
-		return menuToUse;
+	});
 
-	}).then(menuID => fetch("https://menu.bates.edu/NetNutrition/1/Menu/SelecUnitAndtMenu", {
+	return Promise.all(daily_menu.menus);
+}
+
+// Use meal ID to request menu listing
+async function mealMenuRequest(menuID){
+
+	var menuData = await fetch("https://menu.bates.edu/NetNutrition/1/Menu/SelecUnitAndtMenu", {
 	    "credentials": "include",
 	    "headers": {
 	    	"Host": "menu.bates.edu",
@@ -189,16 +254,17 @@ async function menuRequest() {
 		for(var p = 0; p < data.panels.length; p++){
 			if(data.panels[p].id == "itemPanel"){
 				let dataHTML = data.panels[p].html;
-				return getMenuFromHTML(dataHTML);
+				return extractMenuFromHTML(dataHTML);
 			}
 		}
-
-	}));
+	});
 
 	return menuData;
 
 }
 
+
+const server = http.createServer(requestHandler)
 server.listen(port, (err) => {
   if (err) {
     return console.log('something bad happened', err)
