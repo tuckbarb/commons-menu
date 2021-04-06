@@ -2,6 +2,7 @@
 const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs');
+require('dst');
 const port = 3000;
 
 var cookie_asp_ID;
@@ -9,6 +10,16 @@ var cookie_asp_ID;
 // Returns date now
 function getCurrentDate(){
 	return new Date(Date.now());
+}
+
+// Returns date now
+function getESTDate(){
+	var currentDate = getCurrentDate();
+	var offset = -300;
+	if(currentDate.isDST()){
+		offset = -240;
+	}
+	return new Date(Date.now() + offset * 60000);
 }
 
 // Holder for the day's current menu
@@ -21,7 +32,7 @@ var daily_menu = {
 
 // Handle a page request
 const requestHandler = (request, response) => {
-  console.log(request.url)
+  console.log("New request at: " + request.url)
 
 
   // Return only the JSON
@@ -59,14 +70,11 @@ function getCurrentMeal() {
 
 	var menuToUse;
 
-	let nowMin = getCurrentDate().getUTCMinutes();
-	let nowHour = getCurrentDate().getUTCHours();
-	let nowDay = getCurrentDate().getUTCDay();
+	let nowMin = getESTDate().getMinutes();
+	let nowHour = getESTDate().getHours();
+	let nowDay = getESTDate().getDay();
 	// Also correct to EST 
-	let nowTime = ((24 + nowHour - 4) % 24) + (nowMin / 60);
-	if(nowHour < 5){
-		nowDay --;
-	}
+	let nowTime = nowHour + (nowMin / 60);
 
 	console.log("Date: (" + nowDay + ") - " + nowHour + ":" + nowMin + "[" + nowTime + "]");
 
@@ -103,9 +111,9 @@ function getCurrentMeal() {
 
 }
 
-// Determine if current day's menu is loaded, is so return it
+// Determine if current day's menu is loaded, if so return it
 async function getCurrentMenu(){
-	var dateRightNow = getCurrentDate();
+	var dateRightNow = getESTDate();
 
 	// Check if the menu has been updated today
 	var isSameDay =  ( daily_menu.obtainedDate 
@@ -115,10 +123,12 @@ async function getCurrentMenu(){
 
 	// If not, retrieve the menu through JSON
 	if(!isSameDay){
+		console.log("New day, fetching new menu: ( " + daily_menu.obtainedDate.toString() + " --> " + dateRightNow.toString() + " )");
 		daily_menu.obtainedDate = dateRightNow;
 		return dailyMenuRequest().then(() => getCurrentMeal());
 	// otherwise good to go
 	} else {
+		console.log("Same day, returning menu loaded on: " + daily_menu.obtainedDate.toString() );
 		return getCurrentMeal();
 	}
 
@@ -201,7 +211,7 @@ async function dailyMenuRequest() {
 	        "Cache-Control": "no-cache"
 	    },
 	    "referrer": "https://menu.bates.edu/NetNutrition/1",
-	    "body": "unit=-1&meal=-1&date=" + getCurrentDate().toLocaleDateString('en-US', { timeZone: 'America/New_York' }).replace("\/g","%2F") +"&typeChange=DT",
+	    "body": "unit=-1&meal=-1&date=" + getESTDate().toLocaleDateString('en-US', { timeZone: 'America/New_York' }).replace("\/g","%2F") +"&typeChange=DT",
 	    "method": "POST",
 	    "mode": "cors"
 	})).then(response => response.json())

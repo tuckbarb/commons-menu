@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/tuckbarb/commons-menu#readme",
   "dependencies": {
+    "dst": "0.0.4",
     "node-fetch": "^2.6.1"
   }
 }
