@@ -1,8 +1,9 @@
+process.env.TZ = "America/New_York";
+
 // content of index.js
 const fetch = require('node-fetch');
 const http = require('http');
 const fs = require('fs');
-require('dst');
 const port = 3000;
 
 var cookie_asp_ID;
@@ -12,14 +13,21 @@ function getCurrentDate(){
 	return new Date(Date.now());
 }
 
-// Returns date now
-function getESTDate(){
-	var currentDate = getCurrentDate();
-	var offset = -300;
-	if(currentDate.isDST()){
-		offset = -240;
-	}
-	return new Date(Date.now() + offset * 60000);
+// Returns current time in EST or EDT
+// function getESTDate(){
+// 	var currentDate = getCurrentDate();
+
+// 	var offset = -300;
+// 	if(currentDate.isDST()){
+// 		offset = -240;
+// 	}
+// 	return new Date(Date.now() + offset * 60000);
+// }
+
+// convert current date into URL friendly form
+function getURLDate(){
+	var thisDate = getCurrentDate()
+	return (thisDate.getMonth() + 1) + "%2F" + thisDate.getDate() + "%2F" + thisDate.getFullYear();
 }
 
 // Holder for the day's current menu
@@ -70,41 +78,20 @@ function getCurrentMeal() {
 
 	var menuToUse;
 
-	let nowMin = getESTDate().getMinutes();
-	let nowHour = getESTDate().getHours();
-	let nowDay = getESTDate().getDay();
-	// Also correct to EST 
+	let nowMin = getCurrentDate().getMinutes();
+	let nowHour = getCurrentDate().getHours();
+	let nowDay = getCurrentDate().getUTCDay();
 	let nowTime = nowHour + (nowMin / 60);
 
 	console.log("Date: (" + nowDay + ") - " + nowHour + ":" + nowMin + "[" + nowTime + "]");
 
-	// If only two meals are served a day
-	if(daily_menu.menus.length == 2){
-		if(nowTime < 16.5 ){
-			menuToUse = daily_menu.menus[1];
-		} else {
-			menuToUse = daily_menu.menus[0];
-		}
-	// otherwise, probably a normal schedule
+
+	if(nowTime < 11){
+		menuToUse = daily_menu.menus["Breakfast"] || daily_menu.menus["Brunch"] || daily_menu.menus["Lunch"]; // Breakfast
+	} else if(nowTime < 16.5){
+		menuToUse = daily_menu.menus["Lunch"] || daily_menu.menus["Brunch"]; // Lunch / Brunch
 	} else {
-		// If a weekend day
-		if(nowDay == 0 || nowDay == 6){
-			if(nowTime < 10){
-				menuToUse = daily_menu.menus[0]; // Breakfast
-			} else if(nowTime < 16 ){
-				menuToUse = daily_menu.menus[2]; // Brunch
-			} else {
-				menuToUse = daily_menu.menus[1]; // Dinner
-			}
-		} else {
-			if(nowTime < 11){
-				menuToUse = daily_menu.menus[0]; // Breakfast
-			} else if(nowTime < 16.5){
-				menuToUse = daily_menu.menus[1]; // Lunch
-			} else {
-				menuToUse = daily_menu.menus[2]; // Dinner
-			}
-		}
+		menuToUse = daily_menu.menus["Dinner"]; // Dinner
 	}
 
 	return menuToUse;
@@ -113,7 +100,7 @@ function getCurrentMeal() {
 
 // Determine if current day's menu is loaded, if so return it
 async function getCurrentMenu(){
-	var dateRightNow = getESTDate();
+	var dateRightNow = getCurrentDate();
 
 	// Check if the menu has been updated today
 	var isSameDay =  ( daily_menu.obtainedDate 
@@ -211,7 +198,7 @@ async function dailyMenuRequest() {
 	        "Cache-Control": "no-cache"
 	    },
 	    "referrer": "https://menu.bates.edu/NetNutrition/1",
-	    "body": "unit=-1&meal=-1&date=" + getESTDate().toLocaleDateString('en-US', { timeZone: 'America/New_York' }).replace("\/g","%2F") +"&typeChange=DT",
+	    "body": "unit=-1&meal=-1&date=" + getURLDate() +"&typeChange=DT",
 	    "method": "POST",
 	    "mode": "cors"
 	})).then(response => response.json())
@@ -222,11 +209,13 @@ async function dailyMenuRequest() {
 				let dataHTML = data.panels[p].html;
 				// Search html and get array of menus
 				var menus = dataHTML.match(/(?<=menuListSelectUnitAndMenu\(1, )(.*?)(?=\))/g);
+				var meals = dataHTML.match(/(?<=menuListSelectUnitAndMenu[^\/]*?-)(.+?)(?=\<\/)/g);
 
 				daily_menu.menus = [];
 				for(var m = 0; m < menus.length; m++) {
 					// Send request for each menu
-					daily_menu.menus[m] = await mealMenuRequest( menus[m] );
+					var meal_name = meals[m];
+					daily_menu.menus[meal_name] = await mealMenuRequest( menus[m] );
 				}
 			}
 		}
